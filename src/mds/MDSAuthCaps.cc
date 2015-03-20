@@ -62,14 +62,16 @@ struct MDSCapParser : qi::grammar<Iterator, MDSAuthCaps()>
 
     // capspec = * | r[w]
     capspec = spaces >> (
-        lit("*")[_val = MDSCapSpec(true, true, true)]
+	(lit("*"))[_val = MDSCapSpec(true, true, true, false)]
+	|
+        (lit("rw"))[_val = MDSCapSpec(true, true, false, false)]
         |
-        (lit("rw"))[_val = MDSCapSpec(true, true, false)]
+        (lit("squash_root") >> spaces >> lit("rw"))[_val = MDSCapSpec(true, true, false, true)]
         |
-        (lit("r"))[_val = MDSCapSpec(true, false, false)]
+        (lit("r"))[_val = MDSCapSpec(true, false, false, false)]
+        |
+        (lit("squash_root") >> spaces >> lit("r"))[_val = MDSCapSpec(true, false, false, true)]
         );
-
-    rootsquash = -(lit("root_squash")[_val = 1]);
 
     grant = lit("allow") >> (capspec >> match)[_val = phoenix::construct<MDSCapGrant>(_1, _2)];
     grants %= (grant % (*lit(' ') >> (lit(';') | lit(',')) >> *lit(' ')));
@@ -81,7 +83,6 @@ struct MDSCapParser : qi::grammar<Iterator, MDSAuthCaps()>
   qi::rule<Iterator, string()> path;
   qi::rule<Iterator, int()> uid;
   qi::rule<Iterator, MDSCapMatch()> match;
-  qi::rule<Iterator, bool()> rootsquash;
   qi::rule<Iterator, MDSCapGrant()> grant;
   qi::rule<Iterator, std::vector<MDSCapGrant>()> grants;
   qi::rule<Iterator, MDSAuthCaps()> mdscaps;
@@ -115,7 +116,7 @@ bool MDSAuthCaps::is_capable(const std::string &path, int uid, bool may_read, bo
 void MDSAuthCaps::set_allow_all()
 {
     grants.clear();
-    grants.push_back(MDSCapGrant(MDSCapSpec(true, true, true), MDSCapMatch()));
+    grants.push_back(MDSCapGrant(MDSCapSpec(true, true, true, false), MDSCapMatch()));
 }
 
 bool MDSAuthCaps::parse(const std::string& str, ostream *err)
@@ -123,7 +124,8 @@ bool MDSAuthCaps::parse(const std::string& str, ostream *err)
   // Special case for legacy caps
   if (str == "allow") {
     grants.clear();
-    grants.push_back(MDSCapGrant(MDSCapSpec(true, true, false), MDSCapMatch()));
+    grants.push_back(MDSCapGrant(MDSCapSpec(true, true, false, false),
+				 MDSCapMatch()));
     return true;
   }
 
@@ -179,6 +181,9 @@ ostream &operator<<(ostream &out, const MDSCapSpec &spec)
   if (spec.any) {
     out << "*";
   } else {
+    if (spec.squash_root) {
+      out << "squash_root ";
+    }
     if (spec.read) {
       out << "r";
     }
